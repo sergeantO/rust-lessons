@@ -5,9 +5,9 @@ use bevy_kira_audio::*;
 use super::components::Player;
 use crate::enemy::ENEMY_SPRITE_SIZE;
 use crate::enemy::components::Enemy;
+use crate::game::star::components::Star;
 use crate::score::resources::Score;
-use crate::star::components::Star;
-use crate::{events::GameOver, star::STAR_SPRITE_SIZE};
+use crate::{events::GameOver, game::star::STAR_SPRITE_SIZE};
 
 use super::{PLAYER_SPEED, PLAYER_SPRITE_SIZE};
 

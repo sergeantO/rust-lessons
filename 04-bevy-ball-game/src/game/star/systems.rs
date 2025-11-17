@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use rand::random;
 
-use crate::star::{components::Star, resources::StarSpawnTimer};
+use crate::game::star::{components::Star, resources::StarSpawnTimer};
 
 use super::STAR_NUMBERS;
 

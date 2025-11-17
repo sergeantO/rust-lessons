@@ -2,7 +2,32 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_kira_audio::*;
 
-use crate::events::*;
+use crate::AppState;
+use crate::game::events::GameOver;
+
+pub fn transition_to_game_state(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    state: Res<State<AppState>>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::KeyG) {
+        if *state.get() != AppState::Game {
+            next_state.set(AppState::Game);
+        }
+    }
+}
+
+pub fn transition_to_main_menu_state(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    state: Res<State<AppState>>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::KeyM) {
+        if *state.get() != AppState::MainMenu {
+            next_state.set(AppState::MainMenu);
+        }
+    }
+}
 
 pub fn spawn_camera(mut commands: Commands, window_query: Query<&Window, With<PrimaryWindow>>) {
     let window = window_query.single().unwrap();
