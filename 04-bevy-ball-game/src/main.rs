@@ -1,3 +1,4 @@
+use bevy::app::AppExit;
 use bevy::input::keyboard::*;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -16,6 +17,7 @@ pub const STAR_SPAWN_TIME: f32 = 1.0;
 pub const ENEMY_NUMBERS: i32 = 3;
 pub const ENEMY_SPEED: f32 = 200.0;
 pub const ENEMY_SPRITE_SIZE: f32 = 64.0;
+pub const ENEMY_SPAWN_TIME: f32 = 10.0;
 
 fn main() {
     App::new()
@@ -23,6 +25,10 @@ fn main() {
         .add_plugins(AudioPlugin)
         .insert_resource(Score::default())
         .insert_resource(StarSpawnTimer::default())
+        .insert_resource(EnemySpawnTimer::default())
+        .add_message::<GameOver>()
+        .add_systems(Update, handle_game_over)
+        .add_systems(Update, exit_game)
         .add_systems(
             Startup,
             (spawn_camera, spawn_player, spawn_stars, spawn_enemies),
@@ -30,7 +36,7 @@ fn main() {
         .add_systems(Update, update_camera)
         .add_systems(Update, (player_movement, confine_player_movement))
         .add_systems(Update, (update_enemy_direction, enemy_movement))
-        .add_systems(Update, (enemy_hit_player))
+        .add_systems(Update, enemy_hit_player)
         .add_systems(
             Update,
             (
@@ -40,6 +46,7 @@ fn main() {
                 tick_star_spawn_timer,
             ),
         )
+        .add_systems(Update, (tick_enemy_spawn_timer, enemy_spawn_over_time))
         .run();
 }
 
@@ -100,6 +107,24 @@ pub fn spawn_stars(
     }
 }
 
+#[derive(Resource)]
+pub struct EnemySpawnTimer {
+    pub timer: Timer,
+}
+
+#[derive(Message)]
+pub struct GameOver {
+    pub final_score: u32,
+}
+
+impl Default for EnemySpawnTimer {
+    fn default() -> EnemySpawnTimer {
+        EnemySpawnTimer {
+            timer: Timer::from_seconds(ENEMY_SPAWN_TIME, TimerMode::Repeating),
+        }
+    }
+}
+
 pub fn spawn_player(
     mut commands: Commands,
     window_query: Query<&Window, With<PrimaryWindow>>,
@@ -125,13 +150,12 @@ pub fn spawn_enemies(
     let window = window_query.single().unwrap();
 
     for _ in 0..ENEMY_NUMBERS {
-        let rand_x = random::<f32>() * window.width();
-        let rand_y = random::<f32>() * window.height();
         let direction = Vec2::new(random::<f32>(), random::<f32>()).normalize();
+        let translation = get_savety_spawn_coordinates(window, ENEMY_SPRITE_SIZE);
 
         commands.spawn((
             Enemy { direction },
-            Transform::from_xyz(rand_x, rand_y, 0.0),
+            Transform::from_translation(translation),
             Sprite {
                 image: assets_server.load("sprites/ball_red_large.png"),
                 ..default()
@@ -244,6 +268,36 @@ pub fn enemy_movement(mut eneny_query: Query<(&mut Transform, &Enemy)>, time: Re
     }
 }
 
+fn get_savety_spawn_coordinates(window: &Window, size: f32) -> Vec3 {
+    let double_size = size * 2.0;
+
+    let x_min = 0.0 + double_size;
+    let x_max = window.width() - double_size;
+    let y_min = 0.0 + double_size;
+    let y_max = window.height() - double_size;
+
+    let rand_x = random::<f32>() * window.width();
+    let rand_y = random::<f32>() * window.height();
+
+    let x = if rand_x < x_min {
+        x_min
+    } else if rand_x > x_max {
+        x_max
+    } else {
+        rand_x
+    };
+
+    let y = if rand_y < y_min {
+        y_min
+    } else if rand_y > y_max {
+        y_max
+    } else {
+        rand_y
+    };
+
+    Vec3 { x, y, z: 0.0 }
+}
+
 pub fn update_enemy_direction(
     mut enemy_query: Query<(&Transform, &mut Enemy)>,
     window_query: Query<&Window, With<PrimaryWindow>>,
@@ -305,10 +359,11 @@ pub fn update_enemy_direction(
 
 pub fn enemy_hit_player(
     mut commands: Commands,
+    mut game_over_message: MessageWriter<GameOver>,
     mut player_query: Query<(Entity, &Transform), With<Player>>,
     enemy_query: Query<&Transform, With<Enemy>>,
-    assets_server: Res<AssetServer>,
-    audio: Res<Audio>,
+
+    score: Res<Score>,
 ) {
     let player_radius = PLAYER_SPRITE_SIZE / 2.0;
     let enemy_radius = ENEMY_SPRITE_SIZE / 2.0;
@@ -321,14 +376,29 @@ pub fn enemy_hit_player(
             let distance = enemy_transform.translation.distance(player_translation);
 
             if distance < min_distance {
-                println!("Game Over");
-
-                let destroy_sound: Handle<bevy_kira_audio::AudioSource> =
-                    assets_server.load("audio/explosionCrunch_000.ogg");
-                audio.play(destroy_sound);
                 commands.entity(player_entity).despawn();
+                game_over_message.write(GameOver {
+                    final_score: score.value,
+                });
             }
         }
+    }
+}
+
+pub fn handle_game_over(
+    mut game_over_message: MessageReader<GameOver>,
+    assets_server: Res<AssetServer>,
+    audio: Res<Audio>,
+) {
+    let iter = game_over_message.read();
+    for message in iter {
+        let destroy_sound: Handle<bevy_kira_audio::AudioSource> =
+            assets_server.load("audio/explosionCrunch_000.ogg");
+        audio.play(destroy_sound);
+        println!(
+            "Game Over. Final score is {}",
+            message.final_score.to_string()
+        );
     }
 }
 
@@ -388,5 +458,41 @@ pub fn spawn_star(
                 ..default()
             },
         ));
+    }
+}
+
+pub fn tick_enemy_spawn_timer(mut enemy_spawn_timmer: ResMut<EnemySpawnTimer>, time: Res<Time>) {
+    enemy_spawn_timmer.timer.tick(time.delta());
+}
+
+pub fn enemy_spawn_over_time(
+    mut commands: Commands,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    assets_server: Res<AssetServer>,
+    enemy_spawn_timmer: ResMut<EnemySpawnTimer>,
+) {
+    if enemy_spawn_timmer.timer.just_finished() {
+        let window = window_query.single().unwrap();
+
+        let direction = Vec2::new(random::<f32>(), random::<f32>()).normalize();
+        let translation = get_savety_spawn_coordinates(window, ENEMY_SPRITE_SIZE);
+
+        commands.spawn((
+            Enemy { direction },
+            Transform::from_translation(translation),
+            Sprite {
+                image: assets_server.load("sprites/ball_red_large.png"),
+                ..default()
+            },
+        ));
+    }
+}
+
+pub fn exit_game(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut app_exit_event_writer: MessageWriter<AppExit>,
+) {
+    if keyboard_input.just_pressed(KeyCode::CapsLock) {
+        app_exit_event_writer.write(AppExit::Success);
     }
 }
